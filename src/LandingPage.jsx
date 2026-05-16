@@ -1,7 +1,7 @@
 // App.jsx
 import React, { useState, useEffect } from "react";
 
-// ==================== NAVBAR ====================
+// ==================== NAVBAR ====================----
 const Navbar = () => {
   const [scrolled, setScrolled] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -23,9 +23,7 @@ const Navbar = () => {
   return (
     <nav
       className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${
-        scrolled
-          ? "bg-white/90 backdrop-blur-md shadow-lg"
-          : "bg-transparent"
+        scrolled ? "bg-white/90 backdrop-blur-md shadow-lg" : "bg-transparent"
       }`}
     >
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -197,9 +195,7 @@ const HeroSection = () => {
                   <div className="text-2xl sm:text-3xl font-bold text-white">
                     {stat.value}
                   </div>
-                  <div className="text-sm text-gray-400 mt-1">
-                    {stat.label}
-                  </div>
+                  <div className="text-sm text-gray-400 mt-1">{stat.label}</div>
                 </div>
               ))}
             </div>
@@ -470,8 +466,8 @@ const FeaturesSection = () => {
             </span>
           </h2>
           <p className="text-lg text-gray-600">
-            Bộ công cụ mạnh mẽ được thiết kế để giúp bạn làm việc thông minh hơn,
-            nhanh hơn và hiệu quả hơn.
+            Bộ công cụ mạnh mẽ được thiết kế để giúp bạn làm việc thông minh
+            hơn, nhanh hơn và hiệu quả hơn.
           </p>
         </div>
 
@@ -517,9 +513,7 @@ const AboutSection = () => {
                   <div className="text-3xl font-bold text-violet-600 mb-1">
                     5+
                   </div>
-                  <div className="text-sm text-gray-600">
-                    Năm kinh nghiệm
-                  </div>
+                  <div className="text-sm text-gray-600">Năm kinh nghiệm</div>
                 </div>
                 <div className="bg-white rounded-2xl p-6 shadow-sm mt-8">
                   <div className="text-3xl font-bold text-indigo-600 mb-1">
@@ -559,9 +553,9 @@ const AboutSection = () => {
               đột phá
             </h2>
             <p className="text-lg text-gray-600 mb-6 leading-relaxed">
-              Với hơn 5 năm kinh nghiệm trong lĩnh vực công nghệ, NovaTech tự hào
-              là đối tác tin cậy của hàng ngàn doanh nghiệp. Chúng tôi không chỉ
-              cung cấp công cụ — chúng tôi kiến tạo giải pháp.
+              Với hơn 5 năm kinh nghiệm trong lĩnh vực công nghệ, NovaTech tự
+              hào là đối tác tin cậy của hàng ngàn doanh nghiệp. Chúng tôi không
+              chỉ cung cấp công cụ — chúng tôi kiến tạo giải pháp.
             </p>
 
             <div className="space-y-4 mb-8">
@@ -884,8 +878,8 @@ const CTASection = () => {
         </div>
 
         <p className="text-white/50 text-sm mt-6">
-          ✓ Miễn phí 14 ngày &nbsp; ✓ Không cần thẻ tín dụng &nbsp; ✓ Hủy bất
-          cứ lúc nào
+          ✓ Miễn phí 14 ngày &nbsp; ✓ Không cần thẻ tín dụng &nbsp; ✓ Hủy bất cứ
+          lúc nào
         </p>
       </div>
     </section>
@@ -895,13 +889,7 @@ const CTASection = () => {
 // ==================== FOOTER ====================
 const Footer = () => {
   const footerLinks = {
-    "Sản phẩm": [
-      "Tính năng",
-      "Bảng giá",
-      "Tích hợp",
-      "API",
-      "Changelog",
-    ],
+    "Sản phẩm": ["Tính năng", "Bảng giá", "Tích hợp", "API", "Changelog"],
     "Công ty": ["Về chúng tôi", "Blog", "Tuyển dụng", "Press Kit", "Liên hệ"],
     "Hỗ trợ": [
       "Trung tâm trợ giúp",
@@ -909,12 +897,7 @@ const Footer = () => {
       "Community",
       "Trạng thái hệ thống",
     ],
-    "Pháp lý": [
-      "Điều khoản sử dụng",
-      "Chính sách bảo mật",
-      "Cookie",
-      "GDPR",
-    ],
+    "Pháp lý": ["Điều khoản sử dụng", "Chính sách bảo mật", "Cookie", "GDPR"],
   };
 
   return (
