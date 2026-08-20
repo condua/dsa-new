@@ -3,6 +3,7 @@ import Navbar from "./components/Navbar";
 import Home from "./pages/Home";
 import Arrays from "./pages/Arrays";
 import LandingPage from "./LandingPage";
+import TranslationPdf from "./pages/pdfTranslation/TranslationPdf";
 // Import các trang khác khi bạn tạo chúng
 // import LinkedList from './pages/LinkedList';
 // import StackQueue from './pages/StackQueue';
@@ -22,6 +23,7 @@ function App() {
             {/* <Route path="/stack-queue" element={<StackQueue />} /> */}
             {/* <Route path="/graph" element={<Graph />} /> */}
             <Route path="/landing" element={<LandingPage />} />
+            <Route path="/translation-pdf" element={<TranslationPdf />} />
           </Routes>
         </main>
       </div>
