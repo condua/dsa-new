@@ -318,6 +318,22 @@ const Icon = ({ name, className = "w-5 h-5", onClick }) => {
         <polyline points="12 6 12 12 16 14" />
       </svg>
     ),
+    X: (
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        width="24"
+        height="24"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <line x1="18" y1="6" x2="6" y2="18" />
+        <line x1="6" y1="6" x2="18" y2="18" />
+      </svg>
+    ),
   };
   return (
     <span
@@ -364,14 +380,15 @@ const MOCK_DOCUMENTS = [
     readingTime: calculateReadingTime(SAMPLE_HTML_CONTENT),
   },
 ];
-
 const RealDictionaryService = {
   lookup: async (text, context) => {
     try {
-      const apiKey = "";
-      const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${apiKey}`;
+      // Lấy API key từ biến môi trường của Vite
+      const apiKey = import.meta.env.VITE_OPENAI_API_KEY;
+      const apiUrl = "https://api.openai.com/v1/chat/completions";
 
       const wordCount = text.trim().split(/\s+/).length;
+      // Khai báo biến này nếu bạn cần dùng cho logic khác bên ngoài
       const isTranslationMode = wordCount > 3;
 
       const systemPrompt = `You are an expert English-Vietnamese AI tutor and dictionary.
@@ -401,33 +418,38 @@ const RealDictionaryService = {
         ]
       }
       
-      Do not include markdown tags like \`\`\`json. Return raw JSON.`;
+      Important: Output MUST be a valid JSON object.`;
 
       const userPrompt = `Text to analyze: "${text}"\nContext: "${context || "None"}"`;
 
       const payload = {
-        contents: [{ parts: [{ text: userPrompt }] }],
-        systemInstruction: { parts: [{ text: systemPrompt }] },
-        generationConfig: { responseMimeType: "application/json" },
+        model: "gpt-4o-mini", // Có thể đổi thành gpt-4o tùy nhu cầu
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt },
+        ],
+        // Bắt buộc OpenAI trả về định dạng JSON
+        response_format: { type: "json_object" },
       };
 
       const response = await fetch(apiUrl, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${apiKey}`,
+        },
         body: JSON.stringify(payload),
       });
 
       const result = await response.json();
 
-      if (result?.candidates?.[0]?.content?.parts?.[0]?.text) {
-        let jsonString = result.candidates[0].content.parts[0].text;
-        jsonString = jsonString
-          .replace(/```json/gi, "")
-          .replace(/```/g, "")
-          .trim();
+      // Parse kết quả trả về từ OpenAI
+      if (result?.choices?.[0]?.message?.content) {
+        const jsonString = result.choices[0].message.content.trim();
         return JSON.parse(jsonString);
       } else {
-        throw new Error("Invalid response");
+        console.error("OpenAI API Error details:", result);
+        throw new Error("Invalid response from OpenAI");
       }
     } catch (error) {
       console.error("AI Error:", error);
@@ -440,7 +462,6 @@ const RealDictionaryService = {
     }
   },
 };
-
 const AppContext = createContext();
 
 const AppProvider = ({ children }) => {
@@ -607,7 +628,7 @@ const SmartPopup = ({ position, text, context, onClose, containerRef }) => {
   }, [position, data, containerRef]);
 
   const handlePronounce = (e) => {
-    e.stopPropagation();
+    // Không cần e.stopPropagation() nữa vì thẻ cha bọc ngoài cùng đã chặn rồi
     if ("speechSynthesis" in window) {
       const utterance = new SpeechSynthesisUtterance(text);
       utterance.lang = "en-US";
@@ -618,8 +639,12 @@ const SmartPopup = ({ position, text, context, onClose, containerRef }) => {
   return (
     <div
       ref={popupRef}
-      className="absolute z-50 w-80 md:w-96 bg-white/95 dark:bg-slate-800/95 backdrop-blur-xl rounded-2xl shadow-[0_20px_50px_-12px_rgba(0,0,0,0.25)] border border-slate-200/50 dark:border-slate-700/50 overflow-hidden animate-in fade-in zoom-in-95 duration-200"
+      // Thêm class smart-popup-container để dễ nhận diện khi click chuột ra ngoài
+      className="smart-popup-container absolute z-50 w-80 md:w-96 bg-white/95 dark:bg-slate-800/95 backdrop-blur-xl rounded-2xl shadow-[0_20px_50px_-12px_rgba(0,0,0,0.25)] border border-slate-200/50 dark:border-slate-700/50 overflow-hidden animate-in fade-in zoom-in-95 duration-200"
       style={{ top: `${adjustedPos.top}px`, left: `${adjustedPos.left}px` }}
+      // SỬA LỖI Ở ĐÂY: Chặn tuyệt đối mọi sự kiện nhấn chuột lọt ra ngoài vùng văn bản
+      onMouseDown={(e) => e.stopPropagation()}
+      onMouseUp={(e) => e.stopPropagation()}
       onClick={(e) => e.stopPropagation()}
     >
       {loading ? (
@@ -652,12 +677,22 @@ const SmartPopup = ({ position, text, context, onClose, containerRef }) => {
                 </div>
               )}
             </div>
-            <button
-              onClick={handlePronounce}
-              className="p-2.5 bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600 hover:bg-indigo-100 dark:hover:bg-indigo-500/20 rounded-full transition-colors shrink-0"
-            >
-              <Icon name="Volume2" className="w-4 h-4" />
-            </button>
+            <div className="flex items-center space-x-1 shrink-0">
+              <button
+                onClick={handlePronounce}
+                className="p-2.5 bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600 hover:bg-indigo-100 dark:hover:bg-indigo-500/20 rounded-full transition-colors"
+                title="Phát âm"
+              >
+                <Icon name="Volume2" className="w-4 h-4" />
+              </button>
+              <button
+                onClick={onClose}
+                className="p-2.5 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-500/20 rounded-full transition-colors"
+                title="Đóng"
+              >
+                <Icon name="X" className="w-4 h-4" />
+              </button>
+            </div>
           </div>
 
           {/* Body */}
@@ -853,6 +888,11 @@ const Reader = () => {
   // Ẩn popup khi click ra ngoài vùng văn bản
   useEffect(() => {
     const handleClickOutside = (e) => {
+      // SỬA LỖI Ở ĐÂY: Nếu click trúng vào bất kỳ thành phần nào bên trong Popup thì bỏ qua, không đóng
+      if (e.target.closest(".smart-popup-container")) {
+        return;
+      }
+
       const selection = window.getSelection();
       if (!selection || selection.isCollapsed) {
         setPopupPosition(null);
