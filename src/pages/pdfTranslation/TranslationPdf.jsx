@@ -1561,6 +1561,14 @@ const AppContent = () => {
         .document-html-content em, .document-html-content i { font-style: italic; }
         .document-html-content blockquote { border-left: 4px solid #cbd5e1; padding-left: 1em; margin-left: 0; font-style: italic; color: #64748b; }
         .dark .document-html-content blockquote { border-color: #475569; color: #94a3b8; }
+        
+        /* Table Styles */
+        .document-html-content table { width: 100%; border-collapse: collapse; margin-bottom: 2em; font-size: 0.95em; }
+        .document-html-content th, .document-html-content td { border: 1px solid rgba(156, 163, 175, 0.4); padding: 12px 16px; text-align: left; vertical-align: top; }
+        .document-html-content th { background-color: rgba(0, 0, 0, 0.04); font-weight: 700; }
+        .document-html-content tr:nth-child(even) { background-color: rgba(0, 0, 0, 0.015); }
+        .dark .document-html-content th { background-color: rgba(255, 255, 255, 0.05); }
+        .dark .document-html-content tr:nth-child(even) { background-color: rgba(255, 255, 255, 0.02); }
       `,
         }}
       />
