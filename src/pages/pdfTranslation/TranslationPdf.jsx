@@ -7,9 +7,27 @@ import React, {
   useCallback,
 } from "react";
 
+/* STREAMING_CHUNK:Khởi tạo danh sách Icons và tiện ích phát âm... */
 // --- Icons (Lucide-React simulated) ---
 const Icon = ({ name, className = "w-5 h-5", onClick }) => {
   const icons = {
+    Menu: (
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        width="24"
+        height="24"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <line x1="4" x2="20" y1="12" y2="12" />
+        <line x1="4" x2="20" y1="6" y2="6" />
+        <line x1="4" x2="20" y1="18" y2="18" />
+      </svg>
+    ),
     Upload: (
       <svg
         xmlns="http://www.w3.org/2000/svg"
@@ -282,26 +300,6 @@ const Icon = ({ name, className = "w-5 h-5", onClick }) => {
         <line x1="8" y1="11" x2="14" y2="11" />
       </svg>
     ),
-    Languages: (
-      <svg
-        xmlns="http://www.w3.org/2000/svg"
-        width="24"
-        height="24"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      >
-        <path d="m5 8 6 6" />
-        <path d="m4 14 6-6 2-3" />
-        <path d="M2 5h12" />
-        <path d="M7 2h1" />
-        <path d="m22 22-5-10-5 10" />
-        <path d="M14 18h6" />
-      </svg>
-    ),
     Clock: (
       <svg
         xmlns="http://www.w3.org/2000/svg"
@@ -334,6 +332,22 @@ const Icon = ({ name, className = "w-5 h-5", onClick }) => {
         <line x1="6" y1="6" x2="18" y2="18" />
       </svg>
     ),
+    Sidebar: (
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        width="24"
+        height="24"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <rect width="18" height="18" x="3" y="3" rx="2" />
+        <path d="M9 3v18" />
+      </svg>
+    ),
   };
   return (
     <span
@@ -345,16 +359,22 @@ const Icon = ({ name, className = "w-5 h-5", onClick }) => {
   );
 };
 
-// Hàm tính toán thời gian đọc ước tính dựa trên độ dài văn bản
+// Hàm phát âm chung
+const playAudio = (text, e = null) => {
+  if (e) e.stopPropagation();
+  if ("speechSynthesis" in window) {
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang = "en-US";
+    window.speechSynthesis.speak(utterance);
+  }
+};
+
 const calculateReadingTime = (htmlContent) => {
   if (!htmlContent) return 1;
-  // Loại bỏ các thẻ HTML để lấy chữ thuần tuý
   const text = htmlContent.replace(/<[^>]+>/g, " ");
-  // Đếm số lượng từ (tách nhau bởi khoảng trắng)
   const wordCount = text.trim().split(/\s+/).length;
-  // Trung bình người học tiếng Anh đọc khoảng 200 từ / phút
   const readingTime = Math.ceil(wordCount / 200);
-  return readingTime || 1; // Trả về ít nhất 1 phút
+  return readingTime || 1;
 };
 
 const SAMPLE_HTML_CONTENT = `
@@ -380,84 +400,80 @@ const MOCK_DOCUMENTS = [
     readingTime: calculateReadingTime(SAMPLE_HTML_CONTENT),
   },
 ];
+
+/* STREAMING_CHUNK:Định nghĩa logic xử lý AI và State toàn cục... */
 const RealDictionaryService = {
   lookup: async (text, context) => {
-    const cleanText = text.trim();
-
-    if (!cleanText) {
-      return null;
-    }
-
-    const wordCount = cleanText.split(/\s+/).length;
-    const isTranslationMode = wordCount > 3;
-
     try {
-      const apiKey = import.meta.env.VITE_OPENAI_API_KEY;
-
+      const apiKey = import.meta.env.VITE_OPENAI_API_KEY || "";
       const apiUrl = "https://api.openai.com/v1/chat/completions";
 
-      const systemPrompt = `
-You are an expert English-Vietnamese AI tutor and dictionary.
+      const wordCount = text.trim().split(/\s+/).length;
 
-Analyze the provided English text.
+      const systemPrompt = `You are an expert English-Vietnamese AI tutor and dictionary.
+      Analyze the provided text.
+      
+      IF the text is 1 to 3 words long, act as a Dictionary and return ONLY this JSON structure:
+      {
+        "mode": "dictionary",
+        "word": "the exact word queried",
+        "ipa": "IPA pronunciation",
+        "partOfSpeech": "noun/verb/adj/etc",
+        "vietnameseMeaning": "primary Vietnamese translation",
+        "contextMeaning": "Vietnamese meaning adapted to context (if different)",
+        "englishDefinition": "Short English definition",
+        "examples": ["example 1"]
+      }
 
-If the text contains 1 to 3 words, return a dictionary result.
+      IF the text is 4 words or longer (a phrase, sentence, or paragraph), act as a Translator and return ONLY this JSON structure:
+      {
+        "mode": "translation",
+        "word": "the original text",
+        "vietnameseMeaning": "Fluent and natural Vietnamese translation of the entire text",
+        "englishDefinition": "Brief grammatical explanation or summary of the text's meaning",
+        "keyVocabulary": [
+           {"word": "hard word 1", "meaning": "meaning in vietnamese"},
+           {"word": "hard word 2", "meaning": "meaning in vietnamese"}
+        ]
+      }
+      
+      Important: Output MUST be a valid JSON object.`;
 
-If the text contains 4 or more words, return a translation result.
+      const userPrompt = `Text to analyze: "${text}"\nContext: "${context || "None"}"`;
 
-IMPORTANT:
-- Always return valid JSON.
-- Do not use Markdown.
-- Do not add explanations outside JSON.
-
-For dictionary mode, return:
-
-{
-  "word": "the exact text queried",
-  "ipa": "IPA pronunciation",
-  "partOfSpeech": "noun/verb/adjective/etc",
-  "vietnameseMeaning": "primary Vietnamese meaning",
-  "contextMeaning": "meaning in the given context",
-  "englishDefinition": "short English definition",
-  "examples": ["example sentence"]
-}
-
-For translation mode, return:
-
-{
-  "word": "the original text",
-  "vietnameseMeaning": "natural Vietnamese translation",
-  "englishDefinition": "brief explanation",
-  "keyVocabulary": [
-    {
-      "word": "word",
-      "meaning": "Vietnamese meaning"
-    }
-  ]
-}
-`;
-
-      const userPrompt = `
-Text: ${JSON.stringify(cleanText)}
-
-Context: ${JSON.stringify(context || "None")}
-`;
+      // Giả lập kết quả nội bộ nếu không có API Key để demo không bị lỗi
+      if (!apiKey) {
+        await new Promise((resolve) => setTimeout(resolve, 800));
+        if (wordCount <= 3) {
+          return {
+            mode: "dictionary",
+            word: text.toLowerCase(),
+            ipa: "/ˈdɛmoʊ/",
+            partOfSpeech: "noun",
+            vietnameseMeaning: "từ điển giả lập",
+            contextMeaning: "nghĩa giả lập",
+            englishDefinition:
+              "This is a simulated response because API key is missing.",
+            examples: ["Please add OpenAI API key to use real AI."],
+          };
+        } else {
+          return {
+            mode: "translation",
+            word: text,
+            vietnameseMeaning: "(Bản dịch giả lập) " + text,
+            englishDefinition: "Phần dịch đoạn văn giả lập vì thiếu API Key.",
+            keyVocabulary: [{ word: "mock", meaning: "giả lập" }],
+          };
+        }
+      }
 
       const payload = {
         model: "gpt-4o-mini",
         messages: [
-          {
-            role: "system",
-            content: systemPrompt,
-          },
-          {
-            role: "user",
-            content: userPrompt,
-          },
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt },
         ],
-        response_format: {
-          type: "json_object",
-        },
+        response_format: { type: "json_object" },
       };
 
       const response = await fetch(apiUrl, {
@@ -471,61 +487,37 @@ Context: ${JSON.stringify(context || "None")}
 
       const result = await response.json();
 
-      if (!response.ok) {
-        console.error("OpenAI API Error:", result);
-        throw new Error(result?.error?.message || "OpenAI API request failed");
+      if (result?.choices?.[0]?.message?.content) {
+        return JSON.parse(result.choices[0].message.content.trim());
+      } else {
+        throw new Error("Invalid response from OpenAI");
       }
-
-      const content = result?.choices?.[0]?.message?.content;
-
-      if (!content) {
-        throw new Error("OpenAI returned empty content");
-      }
-
-      const aiData = JSON.parse(content);
-
-      // QUAN TRỌNG:
-      // Không cho AI quyết định mode.
-      // Frontend tự xác định dựa trên số lượng từ.
-      return {
-        ...aiData,
-        mode: isTranslationMode ? "translation" : "dictionary",
-        word: cleanText,
-      };
     } catch (error) {
       console.error("AI Error:", error);
-
-      // Nếu đang tra MỘT TỪ thì lỗi vẫn phải là dictionary.
       return {
-        mode: isTranslationMode ? "translation" : "dictionary",
-        word: cleanText,
-        vietnameseMeaning: "Không thể kết nối với AI. Vui lòng thử lại.",
+        mode: "translation",
+        word: text,
+        vietnameseMeaning: "Lỗi kết nối AI hoặc thiếu API Key.",
         englishDefinition: error.message,
-        ipa: "",
-        partOfSpeech: "",
-        contextMeaning: "",
-        examples: [],
       };
     }
   },
 };
+
 const AppContext = createContext();
 
 const AppProvider = ({ children }) => {
   const [currentView, setCurrentView] = useState("dashboard");
   const [activeDocument, setActiveDocument] = useState(null);
 
-  // Storage
   const [vocabulary, setVocabulary] = useState([]);
   const [highlights, setHighlights] = useState([]);
   const [documents, setDocuments] = useState(MOCK_DOCUMENTS);
 
-  // Preferences
-  const [theme, setTheme] = useState("light"); // light, dark, sepia
+  const [theme, setTheme] = useState("light");
   const [fontSize, setFontSize] = useState(18);
-  const [fontFamily, setFontFamily] = useState("Times New Roman, serif");
+  const [fontFamily, setFontFamily] = useState("ui-sans-serif, system-ui");
 
-  // Hàm cập nhật tiến độ đọc
   const updateProgress = (id, progress) => {
     setDocuments((docs) =>
       docs.map((doc) =>
@@ -550,7 +542,6 @@ const AppProvider = ({ children }) => {
 
   const removeDocument = (id) => {
     setDocuments(documents.filter((doc) => doc.id !== id));
-    // Nếu đang mở file đó thì đóng lại
     if (activeDocument?.id === id) {
       closeDocument();
     }
@@ -574,10 +565,10 @@ const AppProvider = ({ children }) => {
       ...highlights,
     ]);
   };
+
   const removeHighlight = (id) =>
     setHighlights(highlights.filter((h) => h.id !== id));
 
-  // Toggle dark/light (Sepia handled in Reader)
   const toggleTheme = () => {
     setTheme((prev) => (prev === "dark" ? "light" : "dark"));
   };
@@ -622,6 +613,7 @@ const AppProvider = ({ children }) => {
   );
 };
 
+/* STREAMING_CHUNK:Phát triển Component SmartPopup (Mobile Responsive)... */
 const SmartPopup = ({ position, text, context, onClose, containerRef }) => {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -644,52 +636,54 @@ const SmartPopup = ({ position, text, context, onClose, containerRef }) => {
     };
   }, [text, context]);
 
-  // Giữ popup không bị tràn màn hình và bám chặt vào trang giấy
-  const [adjustedPos, setAdjustedPos] = useState(position);
+  // Điều chỉnh vị trí đảm bảo không bị tràn trên Mobile
+  const [adjustedPos, setAdjustedPos] = useState({
+    top: position.top,
+    left: position.left,
+    opacity: 0,
+  });
+
   useEffect(() => {
-    if (popupRef.current && containerRef.current) {
+    if (popupRef.current) {
       const popupRect = popupRef.current.getBoundingClientRect();
-      const containerRect = containerRef.current.getBoundingClientRect();
+      const screenWidth = window.innerWidth;
+      const screenHeight = window.innerHeight;
 
       let newTop = position.top;
       let newLeft = position.left;
 
-      // Căn lề theo viền trang giấy (không để popup tràn ra khỏi bìa sách)
-      if (newLeft + popupRect.width > containerRect.width - 20) {
-        newLeft = containerRect.width - popupRect.width - 20;
+      // Đảm bảo không tràn trái phải
+      if (newLeft + popupRect.width > screenWidth - 16) {
+        newLeft = screenWidth - popupRect.width - 16;
       }
-      if (newLeft < 20) {
-        newLeft = 20;
+      if (newLeft < 16) {
+        newLeft = 16;
       }
 
-      // Tính toán toạ độ so với khung nhìn hiện tại của màn hình
-      const viewportBottom = containerRect.top + newTop + popupRect.height;
+      // Đảm bảo không tràn dưới (lật lên trên nếu cần)
+      // Lấy tọa độ tuyệt đối so với màn hình để tính toán
+      const containerTop = containerRef.current
+        ? containerRef.current.getBoundingClientRect().top
+        : 0;
+      const viewportBottom = containerTop + newTop + popupRect.height;
 
-      // Lật popup lên trên từ được bôi đen nếu chạm đáy màn hình
-      if (viewportBottom > window.innerHeight - 20) {
+      if (viewportBottom > screenHeight - 20) {
         newTop = position.rectTop - popupRect.height - 10;
       }
 
-      setAdjustedPos({ top: newTop, left: newLeft });
+      setAdjustedPos({ top: newTop, left: newLeft, opacity: 1 });
     }
   }, [position, data, containerRef]);
-
-  const handlePronounce = (e) => {
-    // Không cần e.stopPropagation() nữa vì thẻ cha bọc ngoài cùng đã chặn rồi
-    if ("speechSynthesis" in window) {
-      const utterance = new SpeechSynthesisUtterance(text);
-      utterance.lang = "en-US";
-      window.speechSynthesis.speak(utterance);
-    }
-  };
 
   return (
     <div
       ref={popupRef}
-      // Thêm class smart-popup-container để dễ nhận diện khi click chuột ra ngoài
-      className="smart-popup-container absolute z-50 w-80 md:w-96 bg-white/95 dark:bg-slate-800/95 backdrop-blur-xl rounded-2xl shadow-[0_20px_50px_-12px_rgba(0,0,0,0.25)] border border-slate-200/50 dark:border-slate-700/50 overflow-hidden animate-in fade-in zoom-in-95 duration-200"
-      style={{ top: `${adjustedPos.top}px`, left: `${adjustedPos.left}px` }}
-      // SỬA LỖI Ở ĐÂY: Chặn tuyệt đối mọi sự kiện nhấn chuột lọt ra ngoài vùng văn bản
+      className="smart-popup-container absolute z-50 w-[90vw] sm:w-80 md:w-96 bg-white/95 dark:bg-slate-800/95 backdrop-blur-xl rounded-2xl shadow-[0_20px_50px_-12px_rgba(0,0,0,0.3)] border border-slate-200/50 dark:border-slate-700/50 overflow-hidden transition-opacity duration-200"
+      style={{
+        top: `${adjustedPos.top}px`,
+        left: `${adjustedPos.left}px`,
+        opacity: adjustedPos.opacity,
+      }}
       onMouseDown={(e) => e.stopPropagation()}
       onMouseUp={(e) => e.stopPropagation()}
       onClick={(e) => e.stopPropagation()}
@@ -698,43 +692,68 @@ const SmartPopup = ({ position, text, context, onClose, containerRef }) => {
         <div className="p-8 flex flex-col items-center justify-center space-y-4">
           <div className="w-8 h-8 border-3 border-indigo-600 border-t-transparent rounded-full animate-spin"></div>
           <span className="text-sm font-medium text-slate-500 dark:text-slate-400">
-            AI đang phân tích ngữ cảnh...
+            AI đang phân tích...
           </span>
         </div>
       ) : data ? (
-        <div className="flex flex-col max-h-[400px]">
-          {/* Header */}
-          <div className="p-4 border-b border-slate-100 dark:border-slate-700/50 flex justify-between items-start shrink-0 bg-slate-50/50 dark:bg-slate-800/50">
-            <div className="pr-2 overflow-hidden">
+        <div className="flex flex-col max-h-[50vh] sm:max-h-[400px]">
+          {/* Header - Phân biệt màu theo chế độ */}
+          <div
+            className={`p-4 border-b flex justify-between items-start shrink-0 
+              ${
+                data.mode === "dictionary"
+                  ? "bg-indigo-50/50 dark:bg-indigo-900/20 border-indigo-100 dark:border-indigo-800/50"
+                  : "bg-emerald-50/50 dark:bg-emerald-900/20 border-emerald-100 dark:border-emerald-800/50"
+              }
+          `}
+          >
+            <div className="pr-2 overflow-hidden flex-1">
+              <div className="flex items-center space-x-2 mb-1">
+                <span
+                  className={`text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full
+                  ${
+                    data.mode === "dictionary"
+                      ? "bg-indigo-100 text-indigo-700 dark:bg-indigo-800 dark:text-indigo-200"
+                      : "bg-emerald-100 text-emerald-700 dark:bg-emerald-800 dark:text-emerald-200"
+                  }
+                `}
+                >
+                  {data.mode === "dictionary" ? "Từ vựng" : "Đoạn văn"}
+                </span>
+              </div>
               <h4 className="text-lg font-bold text-slate-900 dark:text-white leading-tight truncate">
-                {data.mode === "dictionary" ? data.word : "Dịch & Phân tích"}
+                {data.mode === "dictionary" ? data.word : "Bản dịch & Ngữ cảnh"}
               </h4>
+
               {data.mode === "dictionary" && (
-                <div className="flex items-center space-x-2 mt-1.5 flex-wrap gap-y-1">
+                <div className="flex items-center space-x-2 mt-2 flex-wrap gap-y-1">
                   {data.ipa && (
-                    <span className="text-sm text-slate-500 dark:text-slate-400 font-mono bg-white dark:bg-slate-900 px-1.5 rounded border border-slate-200 dark:border-slate-700">
+                    <span className="text-sm text-slate-600 dark:text-slate-300 font-mono">
                       {data.ipa}
                     </span>
                   )}
                   {data.partOfSpeech && (
-                    <span className="text-xs font-semibold px-2 py-0.5 bg-indigo-100 dark:bg-indigo-500/20 text-indigo-700 dark:text-indigo-300 rounded-full">
+                    <span className="text-xs font-semibold px-2 py-0.5 bg-slate-200/50 dark:bg-slate-700/50 text-slate-700 dark:text-slate-300 rounded-md">
                       {data.partOfSpeech}
                     </span>
                   )}
                 </div>
               )}
             </div>
+
             <div className="flex items-center space-x-1 shrink-0">
-              <button
-                onClick={handlePronounce}
-                className="p-2.5 bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600 hover:bg-indigo-100 dark:hover:bg-indigo-500/20 rounded-full transition-colors"
-                title="Phát âm"
-              >
-                <Icon name="Volume2" className="w-4 h-4" />
-              </button>
+              {data.mode === "dictionary" && (
+                <button
+                  onClick={(e) => playAudio(data.word, e)}
+                  className="p-2 bg-white/60 dark:bg-slate-800/60 text-indigo-600 dark:text-indigo-400 hover:bg-white dark:hover:bg-slate-700 rounded-full transition-colors shadow-sm"
+                  title="Phát âm"
+                >
+                  <Icon name="Volume2" className="w-4 h-4" />
+                </button>
+              )}
               <button
                 onClick={onClose}
-                className="p-2.5 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-500/20 rounded-full transition-colors"
+                className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-500/20 rounded-full transition-colors"
                 title="Đóng"
               >
                 <Icon name="X" className="w-4 h-4" />
@@ -743,9 +762,8 @@ const SmartPopup = ({ position, text, context, onClose, containerRef }) => {
           </div>
 
           {/* Body */}
-          <div className="p-4 overflow-y-auto custom-scrollbar flex-1">
+          <div className="p-4 overflow-y-auto custom-scrollbar flex-1 bg-white dark:bg-slate-900/50">
             {data.mode === "dictionary" ? (
-              // Chế độ Từ Điển (1-3 từ)
               <div className="space-y-4">
                 <div>
                   <p className="text-[1.05rem] font-semibold text-slate-800 dark:text-slate-100">
@@ -765,7 +783,7 @@ const SmartPopup = ({ position, text, context, onClose, containerRef }) => {
                     )}
                   </p>
                   {data.englishDefinition && (
-                    <p className="text-sm text-slate-600 dark:text-slate-400 mt-2 italic bg-slate-50 dark:bg-slate-900/50 p-2 rounded-lg border border-slate-100 dark:border-slate-700">
+                    <p className="text-sm text-slate-600 dark:text-slate-400 mt-2 italic bg-slate-50 dark:bg-slate-800/50 p-2.5 rounded-lg border border-slate-100 dark:border-slate-700/50">
                       "{data.englishDefinition}"
                     </p>
                   )}
@@ -776,30 +794,26 @@ const SmartPopup = ({ position, text, context, onClose, containerRef }) => {
                     <span className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider block mb-2">
                       Ví dụ
                     </span>
-                    <p className="text-sm text-slate-700 dark:text-slate-300 border-l-2 border-indigo-400 pl-3 py-0.5">
+                    <p className="text-sm text-slate-700 dark:text-slate-300 border-l-2 border-indigo-400 pl-3 py-1 bg-indigo-50/30 dark:bg-indigo-900/10 rounded-r-lg">
                       {data.examples[0]}
                     </p>
                   </div>
                 )}
               </div>
             ) : (
-              // Chế độ Dịch Thuật (Câu/Đoạn)
               <div className="space-y-4">
-                <div className="bg-indigo-50/50 dark:bg-indigo-900/20 p-3 rounded-xl border border-indigo-100 dark:border-indigo-800/50">
-                  <span className="text-xs font-bold text-indigo-400 uppercase tracking-wider block mb-1">
-                    Bản dịch
-                  </span>
-                  <p className="text-base font-medium text-slate-800 dark:text-slate-200">
+                <div className="bg-emerald-50/50 dark:bg-emerald-900/10 p-3.5 rounded-xl border border-emerald-100 dark:border-emerald-800/30">
+                  <p className="text-[15px] font-medium text-slate-800 dark:text-slate-200 leading-relaxed">
                     {data.vietnameseMeaning}
                   </p>
                 </div>
 
                 {data.englishDefinition && (
                   <div>
-                    <span className="text-xs font-bold text-slate-400 uppercase tracking-wider block mb-1">
+                    <span className="text-xs font-bold text-slate-400 uppercase tracking-wider block mb-1.5">
                       Giải thích & Ngữ pháp
                     </span>
-                    <p className="text-sm text-slate-600 dark:text-slate-400">
+                    <p className="text-sm text-slate-600 dark:text-slate-400 bg-slate-50 dark:bg-slate-800/50 p-3 rounded-lg">
                       {data.englishDefinition}
                     </p>
                   </div>
@@ -814,12 +828,14 @@ const SmartPopup = ({ position, text, context, onClose, containerRef }) => {
                       {data.keyVocabulary.map((v, i) => (
                         <div
                           key={i}
-                          className="text-xs bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-md px-2 py-1 shadow-sm flex flex-col"
+                          className="text-xs bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-md px-2.5 py-1.5 shadow-sm flex flex-col"
                         >
                           <span className="font-semibold text-slate-800 dark:text-slate-200">
                             {v.word}
                           </span>
-                          <span className="text-slate-500">{v.meaning}</span>
+                          <span className="text-slate-500 mt-0.5">
+                            {v.meaning}
+                          </span>
                         </div>
                       ))}
                     </div>
@@ -830,18 +846,24 @@ const SmartPopup = ({ position, text, context, onClose, containerRef }) => {
           </div>
 
           {/* Footer Actions */}
-          <div className="p-3 border-t border-slate-100 dark:border-slate-700/50 bg-slate-50/80 dark:bg-slate-900/80 flex space-x-2 shrink-0">
+          <div className="p-3 border-t border-slate-100 dark:border-slate-700/50 bg-slate-50/80 dark:bg-slate-800 flex space-x-2 shrink-0">
             {data.mode === "dictionary" ? (
               <button
-                onClick={() => saveWord(data)}
-                className="flex-1 flex items-center justify-center px-4 py-2 bg-gradient-to-r from-indigo-500 to-blue-600 hover:from-indigo-600 hover:to-blue-700 text-white rounded-xl text-sm font-medium transition-all shadow-md shadow-indigo-500/20 active:scale-95"
+                onClick={() => {
+                  saveWord(data);
+                  onClose();
+                }}
+                className="flex-1 flex items-center justify-center px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-sm font-medium transition-all shadow-md active:scale-95"
               >
                 <Icon name="Star" className="w-4 h-4 mr-2" /> Lưu từ vựng
               </button>
             ) : (
               <button
-                onClick={() => saveHighlight(data.word, data.vietnameseMeaning)}
-                className="flex-1 flex items-center justify-center px-4 py-2 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 text-white rounded-xl text-sm font-medium transition-all shadow-md shadow-emerald-500/20 active:scale-95"
+                onClick={() => {
+                  saveHighlight(data.word, data.vietnameseMeaning);
+                  onClose();
+                }}
+                className="flex-1 flex items-center justify-center px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-sm font-medium transition-all shadow-md active:scale-95"
               >
                 <Icon name="Bookmark" className="w-4 h-4 mr-2" /> Lưu đoạn này
               </button>
@@ -857,6 +879,7 @@ const SmartPopup = ({ position, text, context, onClose, containerRef }) => {
   );
 };
 
+/* STREAMING_CHUNK:Màn hình Đọc và Thanh bên Sidebar... */
 const Reader = () => {
   const {
     activeDocument,
@@ -873,14 +896,16 @@ const Reader = () => {
     setFontFamily,
     updateProgress,
   } = useContext(AppContext);
+
   const [selectedText, setSelectedText] = useState("");
   const [selectionContext, setSelectionContext] = useState("");
   const [popupPosition, setPopupPosition] = useState(null);
-  const [activeTab, setActiveTab] = useState("vocabulary"); // 'vocabulary' | 'highlights'
+  const [activeTab, setActiveTab] = useState("vocabulary");
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false); // Quản lý sidebar trên mobile
+
   const contentRef = useRef(null);
   const scrollTimeout = useRef(null);
 
-  // Tính toán vị trí Popup khi bôi đen
   const handleSelection = useCallback(() => {
     try {
       const selection = window.getSelection();
@@ -888,19 +913,16 @@ const Reader = () => {
         setPopupPosition(null);
         return;
       }
-
       const text = selection.toString().trim();
       if (!text || text.length < 2) {
         setPopupPosition(null);
         return;
       }
 
-      // Lấy câu ngữ cảnh
       let context = "";
       const node = selection.anchorNode;
       if (node && node.parentElement) {
         let block = node.parentElement;
-        // Tìm thẻ bọc ngoài chứa đoạn văn (hỗ trợ HTML tag)
         while (
           block &&
           !["P", "DIV", "H1", "H2", "H3", "LI"].includes(block.tagName) &&
@@ -917,11 +939,10 @@ const Reader = () => {
 
       if (rect.width === 0 && rect.height === 0) return;
 
-      // Tính toạ độ TƯƠNG ĐỐI so với trang giấy (giúp popup cuộn theo chữ)
       setPopupPosition({
         top: rect.bottom - containerRect.top + 10,
-        rectTop: rect.top - containerRect.top, // Dùng để tính toán lật popup lên trên
-        left: rect.left - containerRect.left + rect.width / 2 - 160, // Căn giữa popup
+        rectTop: rect.top - containerRect.top,
+        left: rect.left - containerRect.left + rect.width / 2 - 160,
       });
 
       setSelectedText(text);
@@ -932,14 +953,9 @@ const Reader = () => {
     }
   }, []);
 
-  // Ẩn popup khi click ra ngoài vùng văn bản
   useEffect(() => {
     const handleClickOutside = (e) => {
-      // SỬA LỖI Ở ĐÂY: Nếu click trúng vào bất kỳ thành phần nào bên trong Popup thì bỏ qua, không đóng
-      if (e.target.closest(".smart-popup-container")) {
-        return;
-      }
-
+      if (e.target.closest(".smart-popup-container")) return;
       const selection = window.getSelection();
       if (!selection || selection.isCollapsed) {
         setPopupPosition(null);
@@ -949,13 +965,9 @@ const Reader = () => {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  // Tính toán % tiến độ khi cuộn trang
   const handleScroll = (e) => {
     const { scrollTop, scrollHeight, clientHeight } = e.target;
-    // Bỏ qua nếu trang quá ngắn không cần cuộn
     if (scrollHeight <= clientHeight) return;
-
-    // Tính toán % hoàn thành
     const progress = Math.min(
       100,
       Math.max(
@@ -964,7 +976,6 @@ const Reader = () => {
       ),
     );
 
-    // Sử dụng debounce để tránh gọi update liên tục gây giật lag
     if (scrollTimeout.current) clearTimeout(scrollTimeout.current);
     scrollTimeout.current = setTimeout(() => {
       updateProgress(activeDocument.id, progress);
@@ -973,7 +984,6 @@ const Reader = () => {
 
   if (!activeDocument) return null;
 
-  // Xác định class nền cho trang đọc sách
   const getPageBgClass = () => {
     if (theme === "sepia")
       return "bg-[#fbf0d9] text-[#5b4636] border-[#e8d5b7]";
@@ -982,93 +992,101 @@ const Reader = () => {
   };
 
   return (
-    <div className="flex flex-col h-[calc(100vh-73px)] bg-slate-100 dark:bg-slate-950 transition-colors duration-300">
+    <div className="flex flex-col h-[calc(100vh-64px)] sm:h-[calc(100vh-73px)] bg-slate-100 dark:bg-slate-950 transition-colors duration-300 relative overflow-hidden">
       {/* Reader Toolbar */}
-      <div className="flex-none flex items-center justify-between px-4 py-3 bg-white/80 dark:bg-slate-900/80 backdrop-blur-md border-b border-slate-200 dark:border-slate-800 z-10 shadow-sm">
-        <div className="flex items-center space-x-4">
+      <div className="flex-none flex items-center justify-between px-3 sm:px-4 py-2 sm:py-3 bg-white/90 dark:bg-slate-900/90 backdrop-blur-md border-b border-slate-200 dark:border-slate-800 z-20 shadow-sm">
+        <div className="flex items-center space-x-2 sm:space-x-4 min-w-0">
           <button
             onClick={closeDocument}
-            className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full transition-colors text-slate-600 dark:text-slate-300"
+            className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full transition-colors text-slate-600 dark:text-slate-300 shrink-0"
           >
             <Icon name="ArrowLeft" />
           </button>
-          <div className="h-6 w-px bg-slate-300 dark:bg-slate-700"></div>
-          <div>
-            <h2 className="font-semibold text-slate-800 dark:text-white leading-tight max-w-[200px] sm:max-w-md md:max-w-xl truncate">
+          <div className="h-6 w-px bg-slate-300 dark:bg-slate-700 shrink-0 hidden sm:block"></div>
+          <div className="min-w-0 flex-1">
+            <h2 className="font-semibold text-slate-800 dark:text-white leading-tight truncate text-sm sm:text-base">
               {activeDocument.title}
             </h2>
-            <div className="flex items-center text-xs text-slate-500 mt-0.5">
-              <Icon name="Clock" className="w-3 h-3 mr-1" />
-              <span>Thời gian đọc: ~{activeDocument.readingTime} phút</span>
+            <div className="flex items-center text-[10px] sm:text-xs text-slate-500 mt-0.5 truncate">
+              <Icon name="Clock" className="w-3 h-3 mr-1 shrink-0" />
+              <span className="truncate">
+                Thời gian đọc: ~{activeDocument.readingTime} phút
+              </span>
             </div>
           </div>
         </div>
 
         {/* Controls */}
-        <div className="flex items-center space-x-1 sm:space-x-3 bg-slate-100 dark:bg-slate-800 p-1 rounded-xl">
-          {/* Font Selector */}
+        <div className="flex items-center space-x-1 sm:space-x-2 bg-slate-100 dark:bg-slate-800 p-1 rounded-xl shrink-0 ml-2">
           <select
             value={fontFamily}
             onChange={(e) => setFontFamily(e.target.value)}
-            className="bg-transparent text-sm font-medium outline-none text-slate-700 dark:text-slate-300 cursor-pointer px-2 hidden md:block max-w-[140px] truncate hover:text-indigo-600 transition-colors"
-            title="Chọn Font chữ"
+            className="bg-transparent text-xs sm:text-sm font-medium outline-none text-slate-700 dark:text-slate-300 cursor-pointer px-1 hidden md:block max-w-[120px] truncate hover:text-indigo-600 transition-colors"
           >
+            <option value="ui-sans-serif, system-ui">System Font</option>
             <option value="Times New Roman, serif">Times New Roman</option>
             <option value="Arial, sans-serif">Arial</option>
             <option value="Georgia, serif">Georgia</option>
-            <option value="Verdana, sans-serif">Verdana</option>
-            <option value="'Courier New', Courier, monospace">
-              Courier New
-            </option>
-            <option value="ui-sans-serif, system-ui">System Default</option>
           </select>
 
-          <div className="h-5 w-px bg-slate-300 dark:bg-slate-600 mx-1 hidden md:block"></div>
+          <div className="h-4 w-px bg-slate-300 dark:bg-slate-600 mx-1 hidden md:block"></div>
 
           <button
             onClick={() => setFontSize((f) => Math.max(12, f - 2))}
-            className="p-1.5 text-slate-500 hover:text-slate-900 dark:hover:text-white rounded-lg"
+            className="p-1 sm:p-1.5 text-slate-500 hover:text-slate-900 dark:hover:text-white rounded-lg"
           >
-            <Icon name="ZoomOut" className="w-4 h-4" />
+            <Icon name="ZoomOut" className="w-4 h-4 sm:w-5 sm:h-5" />
           </button>
-          <span className="text-xs font-bold text-slate-400 w-8 text-center">
-            {fontSize}px
+          <span className="text-xs font-bold text-slate-400 w-6 text-center hidden sm:block">
+            {fontSize}
           </span>
           <button
             onClick={() => setFontSize((f) => Math.min(32, f + 2))}
-            className="p-1.5 text-slate-500 hover:text-slate-900 dark:hover:text-white rounded-lg"
+            className="p-1 sm:p-1.5 text-slate-500 hover:text-slate-900 dark:hover:text-white rounded-lg"
           >
-            <Icon name="ZoomIn" className="w-4 h-4" />
+            <Icon name="ZoomIn" className="w-4 h-4 sm:w-5 sm:h-5" />
           </button>
 
-          <div className="h-5 w-px bg-slate-300 dark:bg-slate-600 mx-1"></div>
+          <div className="h-4 w-px bg-slate-300 dark:bg-slate-600 mx-1 hidden sm:block"></div>
+
+          {/* Theme Toggles - Hidden on very small screens, moved to navbar */}
+          <div className="hidden sm:flex space-x-1">
+            <button
+              onClick={() => setTheme("light")}
+              className={`w-5 h-5 rounded-full border-2 ${theme === "light" ? "border-indigo-500" : "border-transparent"} bg-white shadow-sm`}
+            ></button>
+            <button
+              onClick={() => setTheme("sepia")}
+              className={`w-5 h-5 rounded-full border-2 ${theme === "sepia" ? "border-indigo-500" : "border-transparent"} bg-[#fbf0d9] shadow-sm`}
+            ></button>
+            <button
+              onClick={() => setTheme("dark")}
+              className={`w-5 h-5 rounded-full border-2 ${theme === "dark" ? "border-indigo-500" : "border-transparent"} bg-slate-800 shadow-sm`}
+            ></button>
+          </div>
+
+          <div className="h-4 w-px bg-slate-300 dark:bg-slate-600 mx-1 lg:hidden"></div>
 
           <button
-            onClick={() => setTheme("light")}
-            className={`w-6 h-6 rounded-full border-2 ${theme === "light" ? "border-indigo-500" : "border-transparent"} bg-white shadow-sm`}
-          ></button>
-          <button
-            onClick={() => setTheme("sepia")}
-            className={`w-6 h-6 rounded-full border-2 ${theme === "sepia" ? "border-indigo-500" : "border-transparent"} bg-[#fbf0d9] shadow-sm`}
-          ></button>
-          <button
-            onClick={() => setTheme("dark")}
-            className={`w-6 h-6 rounded-full border-2 ${theme === "dark" ? "border-indigo-500" : "border-transparent"} bg-slate-800 shadow-sm`}
-          ></button>
+            onClick={() => setIsSidebarOpen(true)}
+            className="p-1 sm:p-1.5 text-indigo-600 dark:text-indigo-400 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg lg:hidden"
+          >
+            <Icon name="Sidebar" className="w-5 h-5" />
+          </button>
         </div>
       </div>
 
-      <div className="flex-1 flex overflow-hidden relative">
+      <div className="flex-1 flex overflow-hidden relative w-full">
         {/* Main Document Area */}
         <div
-          className="flex-1 overflow-y-auto p-4 md:p-10 custom-scrollbar relative flex justify-center scroll-smooth"
+          className="flex-1 overflow-y-auto p-3 sm:p-6 md:p-10 custom-scrollbar relative flex justify-center scroll-smooth w-full"
           onMouseUp={handleSelection}
           onScroll={handleScroll}
         >
           {/* Document Paper */}
           <div
             ref={contentRef}
-            className={`w-full max-w-3xl p-10 md:p-16 shadow-2xl rounded-md h-max min-h-[842px] mb-12 border transition-all duration-300 flow-root relative
+            className={`w-full max-w-3xl p-6 sm:p-10 md:p-16 shadow-xl rounded-lg h-max min-h-[842px] mb-12 border transition-all duration-300 flow-root relative
                 ${getPageBgClass()}`}
           >
             <div
@@ -1089,38 +1107,61 @@ const Reader = () => {
           </div>
         </div>
 
+        {/* Overlay for Mobile Sidebar */}
+        {isSidebarOpen && (
+          <div
+            className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-30 lg:hidden"
+            onClick={() => setIsSidebarOpen(false)}
+          />
+        )}
+
         {/* Right Sidebar - Học tập */}
-        <div className="w-80 lg:w-96 flex-none bg-white dark:bg-slate-900 border-l border-slate-200 dark:border-slate-800 flex flex-col shadow-[-10px_0_20px_-10px_rgba(0,0,0,0.05)] z-20">
+        <div
+          className={`fixed inset-y-0 right-0 w-[85vw] max-w-[360px] lg:w-96 flex-none bg-white dark:bg-slate-900 border-l border-slate-200 dark:border-slate-800 flex flex-col shadow-2xl lg:shadow-none z-40 lg:z-auto transition-transform duration-300 transform lg:translate-x-0 lg:relative ${isSidebarOpen ? "translate-x-0" : "translate-x-full"}`}
+        >
+          {/* Header Mobile Only */}
+          <div className="flex items-center justify-between p-3 border-b border-slate-200 dark:border-slate-800 lg:hidden bg-slate-50 dark:bg-slate-900">
+            <span className="font-bold text-slate-800 dark:text-white">
+              Công cụ học tập
+            </span>
+            <button
+              onClick={() => setIsSidebarOpen(false)}
+              className="p-1.5 bg-slate-200 dark:bg-slate-800 rounded-full text-slate-600 dark:text-slate-300"
+            >
+              <Icon name="X" className="w-5 h-5" />
+            </button>
+          </div>
+
           {/* Tabs */}
           <div className="flex border-b border-slate-200 dark:border-slate-800 px-2 pt-2 bg-slate-50 dark:bg-slate-900/50">
             <button
               onClick={() => setActiveTab("vocabulary")}
               className={`flex-1 py-3 text-sm font-semibold flex items-center justify-center space-x-2 border-b-2 transition-colors ${activeTab === "vocabulary" ? "border-indigo-500 text-indigo-600 dark:text-indigo-400" : "border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"}`}
             >
-              <Icon name="Star" className="w-4 h-4" />{" "}
-              <span>Từ vựng ({vocabulary.length})</span>
+              <Icon name="Star" className="w-4 h-4" />
+              <span className="truncate">Từ vựng ({vocabulary.length})</span>
             </button>
             <button
               onClick={() => setActiveTab("highlights")}
               className={`flex-1 py-3 text-sm font-semibold flex items-center justify-center space-x-2 border-b-2 transition-colors ${activeTab === "highlights" ? "border-emerald-500 text-emerald-600 dark:text-emerald-400" : "border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"}`}
             >
-              <Icon name="Bookmark" className="w-4 h-4" />{" "}
-              <span>Ghi chú ({highlights.length})</span>
+              <Icon name="Bookmark" className="w-4 h-4" />
+              <span className="truncate">Ghi chú ({highlights.length})</span>
             </button>
           </div>
 
           {/* Tab Content */}
-          <div className="flex-1 overflow-y-auto p-4 custom-scrollbar bg-slate-50/50 dark:bg-slate-900/30">
+          <div className="flex-1 overflow-y-auto p-3 sm:p-4 custom-scrollbar bg-slate-50/50 dark:bg-slate-900/30">
             {activeTab === "vocabulary" ? (
               // Vocabulary List
               vocabulary.length === 0 ? (
-                <div className="text-center text-slate-400 mt-20">
+                <div className="text-center text-slate-400 mt-20 px-4">
                   <Icon
                     name="Bot"
-                    className="w-16 h-16 mx-auto mb-4 opacity-20"
+                    className="w-12 h-12 sm:w-16 sm:h-16 mx-auto mb-4 opacity-20"
                   />
                   <p className="font-medium">Chưa có từ vựng nào</p>
-                  <p className="text-sm mt-2 text-slate-500">
+                  <p className="text-xs sm:text-sm mt-2 text-slate-500">
                     Bôi đen 1 từ trong văn bản để tra cứu và lưu lại.
                   </p>
                 </div>
@@ -1129,23 +1170,37 @@ const Reader = () => {
                   {vocabulary.map((v) => (
                     <div
                       key={v.id}
-                      className="p-3.5 bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm group hover:shadow-md transition-all"
+                      className="p-3 bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm group hover:shadow-md transition-all"
                     >
-                      <div className="flex justify-between items-start">
-                        <div className="pr-4">
+                      <div className="flex justify-between items-start mb-2">
+                        <div className="pr-2 flex-1">
                           <strong className="text-slate-900 dark:text-white text-[1.05rem] font-bold block">
                             {v.word}
                           </strong>
-                          <span className="text-sm font-medium text-slate-600 dark:text-slate-300 block mt-1">
-                            {v.vietnameseMeaning}
-                          </span>
+                          {v.ipa && (
+                            <span className="text-[11px] sm:text-xs text-indigo-500 dark:text-indigo-400 font-mono block mt-0.5">
+                              {v.ipa} • {v.partOfSpeech}
+                            </span>
+                          )}
                         </div>
-                        <button
-                          onClick={() => removeWord(v.id)}
-                          className="opacity-0 group-hover:opacity-100 text-slate-300 hover:text-red-500 transition-all p-1.5 bg-slate-50 hover:bg-red-50 dark:bg-slate-700 dark:hover:bg-red-900/30 rounded-lg"
-                        >
-                          <Icon name="Trash" className="w-4 h-4" />
-                        </button>
+                        <div className="flex space-x-1 opacity-100 sm:opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+                          <button
+                            onClick={() => playAudio(v.word)}
+                            className="p-1.5 text-indigo-500 bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-900/30 dark:hover:bg-indigo-900/50 rounded-lg"
+                            title="Phát âm"
+                          >
+                            <Icon name="Volume2" className="w-4 h-4" />
+                          </button>
+                          <button
+                            onClick={() => removeWord(v.id)}
+                            className="p-1.5 text-red-500 bg-red-50 hover:bg-red-100 dark:bg-red-900/30 dark:hover:bg-red-900/50 rounded-lg"
+                          >
+                            <Icon name="Trash" className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </div>
+                      <div className="text-sm font-medium text-slate-700 dark:text-slate-300 bg-slate-50 dark:bg-slate-900/50 p-2 rounded-lg border border-slate-100 dark:border-slate-700/50">
+                        {v.vietnameseMeaning}
                       </div>
                     </div>
                   ))}
@@ -1153,13 +1208,13 @@ const Reader = () => {
               )
             ) : // Highlights List
             highlights.length === 0 ? (
-              <div className="text-center text-slate-400 mt-20">
+              <div className="text-center text-slate-400 mt-20 px-4">
                 <Icon
                   name="Type"
-                  className="w-16 h-16 mx-auto mb-4 opacity-20"
+                  className="w-12 h-12 sm:w-16 sm:h-16 mx-auto mb-4 opacity-20"
                 />
                 <p className="font-medium">Sổ tay trống</p>
-                <p className="text-sm mt-2 text-slate-500">
+                <p className="text-xs sm:text-sm mt-2 text-slate-500">
                   Bôi đen đoạn văn dài để dịch và lưu vào sổ tay.
                 </p>
               </div>
@@ -1168,21 +1223,21 @@ const Reader = () => {
                 {highlights.map((h) => (
                   <div
                     key={h.id}
-                    className="p-4 bg-emerald-50/50 dark:bg-emerald-900/10 rounded-xl border border-emerald-100 dark:border-emerald-800/30 group"
+                    className="p-3.5 bg-emerald-50/50 dark:bg-emerald-900/10 rounded-xl border border-emerald-100 dark:border-emerald-800/30 group"
                   >
                     <div className="flex justify-between items-start mb-2">
                       <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 mt-1.5 mr-2 shrink-0"></div>
-                      <p className="text-sm font-serif text-slate-700 dark:text-slate-300 italic leading-relaxed flex-1">
+                      <p className="text-[13px] sm:text-sm font-serif text-slate-700 dark:text-slate-300 italic leading-relaxed flex-1">
                         "{h.text}"
                       </p>
                       <button
                         onClick={() => removeHighlight(h.id)}
-                        className="opacity-0 group-hover:opacity-100 text-emerald-300 hover:text-emerald-600 ml-2"
+                        className="opacity-100 sm:opacity-0 group-hover:opacity-100 text-emerald-400 hover:text-emerald-600 p-1 bg-emerald-100/50 dark:bg-emerald-900/50 rounded ml-2"
                       >
                         <Icon name="Trash" className="w-4 h-4" />
                       </button>
                     </div>
-                    <p className="text-sm font-medium text-emerald-800 dark:text-emerald-400 pl-3 border-l-2 border-emerald-200 dark:border-emerald-700/50 ml-0.5 mt-2">
+                    <p className="text-[13px] sm:text-sm font-medium text-emerald-800 dark:text-emerald-400 pl-3 border-l-2 border-emerald-200 dark:border-emerald-700/50 ml-0.5 mt-2">
                       {h.translation}
                     </p>
                   </div>
@@ -1192,17 +1247,17 @@ const Reader = () => {
           </div>
 
           {/* Sidebar Footer */}
-          <div className="p-4 border-t border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900">
+          <div className="p-3 sm:p-4 border-t border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shrink-0">
             <div className="flex items-center space-x-3">
-              <div className="w-8 h-8 rounded-full bg-indigo-100 dark:bg-indigo-900/50 flex items-center justify-center text-indigo-600 dark:text-indigo-400">
-                <Icon name="Bot" className="w-5 h-5" />
+              <div className="w-8 h-8 rounded-full bg-indigo-100 dark:bg-indigo-900/50 flex items-center justify-center text-indigo-600 dark:text-indigo-400 shrink-0">
+                <Icon name="Bot" className="w-4 h-4 sm:w-5 sm:h-5" />
               </div>
-              <div>
-                <span className="font-bold text-sm text-slate-800 dark:text-slate-200 block">
+              <div className="overflow-hidden">
+                <span className="font-bold text-xs sm:text-sm text-slate-800 dark:text-slate-200 block truncate">
                   Gemini AI Engine
                 </span>
-                <span className="text-xs text-slate-500 block">
-                  Dịch ngữ cảnh & Phân tích thông minh
+                <span className="text-[10px] sm:text-xs text-slate-500 block truncate">
+                  Phân tích ngữ cảnh thông minh
                 </span>
               </div>
             </div>
@@ -1213,6 +1268,7 @@ const Reader = () => {
   );
 };
 
+/* STREAMING_CHUNK:Màn hình Sổ tay chi tiết... */
 const NotebookView = () => {
   const {
     vocabulary,
@@ -1224,74 +1280,91 @@ const NotebookView = () => {
   const [activeTab, setActiveTab] = useState("vocabulary");
 
   return (
-    <div className="max-w-5xl mx-auto p-6 md:p-12 animate-fade-in">
-      <div className="flex items-center space-x-4 mb-8">
+    <div className="max-w-5xl mx-auto p-4 sm:p-6 md:p-12 animate-fade-in">
+      <div className="flex items-center space-x-3 sm:space-x-4 mb-6 sm:mb-8">
         <button
           onClick={() => setCurrentView("dashboard")}
-          className="p-2 hover:bg-slate-200 dark:hover:bg-slate-800 rounded-full transition-colors text-slate-600 dark:text-slate-300"
+          className="p-1.5 sm:p-2 hover:bg-slate-200 dark:hover:bg-slate-800 rounded-full transition-colors text-slate-600 dark:text-slate-300"
         >
           <Icon name="ArrowLeft" />
         </button>
-        <h1 className="text-3xl font-black text-slate-900 dark:text-white">
+        <h1 className="text-2xl sm:text-3xl font-black text-slate-900 dark:text-white">
           Sổ tay học tập
         </h1>
       </div>
 
-      {/* Tabs */}
-      <div className="flex space-x-4 mb-8 border-b border-slate-200 dark:border-slate-800">
+      <div className="flex space-x-2 sm:space-x-4 mb-6 sm:mb-8 border-b border-slate-200 dark:border-slate-800 overflow-x-auto custom-scrollbar">
         <button
           onClick={() => setActiveTab("vocabulary")}
-          className={`pb-4 px-4 text-sm font-semibold flex items-center space-x-2 border-b-2 transition-colors ${activeTab === "vocabulary" ? "border-indigo-500 text-indigo-600 dark:text-indigo-400" : "border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"}`}
+          className={`pb-3 sm:pb-4 px-2 sm:px-4 text-sm font-semibold flex items-center space-x-2 border-b-2 transition-colors whitespace-nowrap ${activeTab === "vocabulary" ? "border-indigo-500 text-indigo-600 dark:text-indigo-400" : "border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"}`}
         >
-          <Icon name="Star" className="w-5 h-5" />{" "}
+          <Icon name="Star" className="w-4 h-4 sm:w-5 sm:h-5" />
           <span>Từ vựng ({vocabulary.length})</span>
         </button>
         <button
           onClick={() => setActiveTab("highlights")}
-          className={`pb-4 px-4 text-sm font-semibold flex items-center space-x-2 border-b-2 transition-colors ${activeTab === "highlights" ? "border-emerald-500 text-emerald-600 dark:text-emerald-400" : "border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"}`}
+          className={`pb-3 sm:pb-4 px-2 sm:px-4 text-sm font-semibold flex items-center space-x-2 border-b-2 transition-colors whitespace-nowrap ${activeTab === "highlights" ? "border-emerald-500 text-emerald-600 dark:text-emerald-400" : "border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"}`}
         >
-          <Icon name="Bookmark" className="w-5 h-5" />{" "}
+          <Icon name="Bookmark" className="w-4 h-4 sm:w-5 sm:h-5" />
           <span>Đoạn văn dịch ({highlights.length})</span>
         </button>
       </div>
 
-      {/* Content */}
       <div className="min-h-[400px]">
         {activeTab === "vocabulary" ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             {vocabulary.length === 0 ? (
-              <p className="text-slate-500 col-span-full">
+              <p className="text-slate-500 col-span-full text-center mt-10">
                 Chưa có từ vựng nào được lưu.
               </p>
             ) : (
               vocabulary.map((v) => (
                 <div
                   key={v.id}
-                  className="bg-white dark:bg-slate-800 p-5 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm relative group"
+                  className="bg-white dark:bg-slate-800 p-5 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm relative group flex flex-col"
                 >
-                  <button
-                    onClick={() => removeWord(v.id)}
-                    className="absolute top-4 right-4 text-slate-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
-                  >
-                    <Icon name="Trash" className="w-4 h-4" />
-                  </button>
-                  <h3 className="text-xl font-bold text-slate-900 dark:text-white">
+                  <div className="absolute top-4 right-4 flex space-x-1">
+                    <button
+                      onClick={() => playAudio(v.word)}
+                      className="text-slate-400 hover:text-indigo-500 bg-slate-50 dark:bg-slate-900/50 p-1.5 rounded-lg opacity-100 sm:opacity-0 group-hover:opacity-100 transition-opacity"
+                      title="Phát âm"
+                    >
+                      <Icon name="Volume2" className="w-4 h-4" />
+                    </button>
+                    <button
+                      onClick={() => removeWord(v.id)}
+                      className="text-slate-400 hover:text-red-500 bg-slate-50 dark:bg-slate-900/50 p-1.5 rounded-lg opacity-100 sm:opacity-0 group-hover:opacity-100 transition-opacity"
+                    >
+                      <Icon name="Trash" className="w-4 h-4" />
+                    </button>
+                  </div>
+
+                  <h3 className="text-xl font-bold text-slate-900 dark:text-white pr-16 break-words">
                     {v.word}
                   </h3>
-                  {v.ipa && (
-                    <p className="text-sm text-indigo-500 font-mono mt-1">
-                      {v.ipa} • {v.partOfSpeech}
-                    </p>
-                  )}
-                  <div className="mt-3 bg-slate-50 dark:bg-slate-900/50 p-3 rounded-xl border border-slate-100 dark:border-slate-700">
+
+                  <div className="flex flex-wrap gap-2 mt-1.5 mb-3">
+                    {v.ipa && (
+                      <span className="text-sm text-indigo-500 font-mono bg-indigo-50 dark:bg-indigo-900/20 px-1.5 rounded">
+                        {v.ipa}
+                      </span>
+                    )}
+                    {v.partOfSpeech && (
+                      <span className="text-xs font-semibold px-1.5 py-0.5 bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 rounded">
+                        {v.partOfSpeech}
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="mt-auto bg-slate-50 dark:bg-slate-900/50 p-3 rounded-xl border border-slate-100 dark:border-slate-700 flex-1">
                     <p className="font-medium text-slate-800 dark:text-slate-200">
                       {v.vietnameseMeaning}
                     </p>
                     {v.contextMeaning &&
                       v.contextMeaning !== v.vietnameseMeaning && (
-                        <p className="text-sm text-slate-500 mt-1">
-                          Trong ngữ cảnh:{" "}
-                          <span className="font-medium">
+                        <p className="text-sm text-slate-500 mt-2 border-t border-slate-200 dark:border-slate-700/50 pt-2">
+                          Ngữ cảnh:{" "}
+                          <span className="font-medium text-slate-700 dark:text-slate-300">
                             {v.contextMeaning}
                           </span>
                         </p>
@@ -1304,32 +1377,34 @@ const NotebookView = () => {
         ) : (
           <div className="space-y-4">
             {highlights.length === 0 ? (
-              <p className="text-slate-500">Chưa có đoạn văn nào được lưu.</p>
+              <p className="text-slate-500 text-center mt-10">
+                Chưa có đoạn văn nào được lưu.
+              </p>
             ) : (
               highlights.map((h) => (
                 <div
                   key={h.id}
-                  className="bg-white dark:bg-slate-800 p-6 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm relative group flex flex-col md:flex-row gap-6"
+                  className="bg-white dark:bg-slate-800 p-4 sm:p-6 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm relative group flex flex-col md:flex-row gap-4 sm:gap-6"
                 >
                   <button
                     onClick={() => removeHighlight(h.id)}
-                    className="absolute top-4 right-4 text-slate-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
+                    className="absolute top-3 sm:top-4 right-3 sm:right-4 text-slate-400 hover:text-red-500 opacity-100 sm:opacity-0 group-hover:opacity-100 transition-opacity bg-slate-50 dark:bg-slate-900 p-1.5 rounded-lg z-10"
                   >
                     <Icon name="Trash" className="w-5 h-5" />
                   </button>
-                  <div className="flex-1">
-                    <span className="text-xs font-bold text-slate-400 uppercase tracking-wider block mb-2">
+                  <div className="flex-1 mt-2 sm:mt-0">
+                    <span className="text-[10px] sm:text-xs font-bold text-slate-400 uppercase tracking-wider block mb-2">
                       Bản gốc tiếng Anh
                     </span>
-                    <p className="text-slate-700 dark:text-slate-300 font-serif italic border-l-4 border-slate-300 dark:border-slate-600 pl-4 py-1">
+                    <p className="text-sm sm:text-base text-slate-700 dark:text-slate-300 font-serif italic border-l-4 border-slate-300 dark:border-slate-600 pl-3 sm:pl-4 py-1 leading-relaxed">
                       {h.text}
                     </p>
                   </div>
                   <div className="flex-1">
-                    <span className="text-xs font-bold text-emerald-500 uppercase tracking-wider block mb-2">
+                    <span className="text-[10px] sm:text-xs font-bold text-emerald-500 uppercase tracking-wider block mb-2">
                       Bản dịch tiếng Việt
                     </span>
-                    <p className="text-slate-800 dark:text-slate-100 font-medium bg-emerald-50 dark:bg-emerald-900/20 p-4 rounded-xl border border-emerald-100 dark:border-emerald-800/50">
+                    <p className="text-sm sm:text-base text-slate-800 dark:text-slate-100 font-medium bg-emerald-50 dark:bg-emerald-900/20 p-3 sm:p-4 rounded-xl border border-emerald-100 dark:border-emerald-800/50 leading-relaxed">
                       {h.translation}
                     </p>
                   </div>
@@ -1343,58 +1418,62 @@ const NotebookView = () => {
   );
 };
 
+/* STREAMING_CHUNK:Thanh Navbar và Màn hình chính Dashboard... */
 const Navbar = () => {
   const { theme, toggleTheme, currentView, setCurrentView } =
     useContext(AppContext);
 
   return (
-    <nav className="sticky top-0 z-50 flex items-center justify-between px-6 py-4 bg-white/80 dark:bg-slate-900/80 backdrop-blur-lg border-b border-slate-200 dark:border-slate-800 transition-colors">
+    <nav className="sticky top-0 z-50 flex items-center justify-between px-4 sm:px-6 py-3 sm:py-4 bg-white/80 dark:bg-slate-900/80 backdrop-blur-lg border-b border-slate-200 dark:border-slate-800 transition-colors">
       <div
-        className="flex items-center space-x-3 cursor-pointer group"
+        className="flex items-center space-x-2 sm:space-x-3 cursor-pointer group"
         onClick={() => setCurrentView("dashboard")}
       >
-        <div className="w-10 h-10 bg-gradient-to-br from-indigo-500 to-blue-600 rounded-xl flex items-center justify-center text-white font-bold text-xl shadow-lg shadow-indigo-500/30 group-hover:shadow-indigo-500/50 transition-all">
+        <div className="w-8 h-8 sm:w-10 sm:h-10 bg-gradient-to-br from-indigo-500 to-blue-600 rounded-lg sm:rounded-xl flex items-center justify-center text-white font-bold text-lg sm:text-xl shadow-lg shadow-indigo-500/30 group-hover:shadow-indigo-500/50 transition-all">
           L
         </div>
-        <span className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-slate-900 to-slate-600 dark:from-white dark:to-slate-300 hidden sm:block">
-          LingoReader <span className="text-indigo-500 font-black">Pro</span>
+        <span className="text-lg sm:text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-slate-900 to-slate-600 dark:from-white dark:to-slate-300">
+          Lingo<span className="hidden sm:inline">Reader</span>{" "}
+          <span className="text-indigo-500 font-black">Pro</span>
         </span>
       </div>
 
       {currentView === "dashboard" && (
-        <div className="hidden md:flex flex-1 max-w-lg mx-8 relative">
+        <div className="hidden md:flex flex-1 max-w-md mx-8 relative">
           <input
             type="text"
-            placeholder="Tìm kiếm tài liệu hoặc từ vựng..."
-            className="w-full pl-11 pr-4 py-2.5 rounded-full border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 focus:bg-white dark:focus:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 dark:text-white transition-all shadow-inner"
+            placeholder="Tìm kiếm tài liệu..."
+            className="w-full pl-10 pr-4 py-2 rounded-full text-sm border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 focus:bg-white dark:focus:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 dark:text-white transition-all shadow-inner"
           />
           <Icon
             name="Search"
-            className="absolute left-4 top-3 text-slate-400 w-5 h-5"
+            className="absolute left-3.5 top-2.5 text-slate-400 w-4 h-4"
           />
         </div>
       )}
 
-      {}
-      <div className="flex items-center space-x-2 sm:space-x-4">
+      <div className="flex items-center space-x-1 sm:space-x-3">
         <button
           onClick={() => setCurrentView("notebook")}
-          className="flex items-center space-x-2 px-4 py-2 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 rounded-full font-medium transition-colors"
+          className="flex items-center space-x-2 px-3 sm:px-4 py-1.5 sm:py-2 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 rounded-full font-medium transition-colors text-sm"
         >
           <Icon name="BookOpen" className="w-4 h-4" />
           <span className="hidden sm:inline">Sổ tay</span>
         </button>
 
-        <div className="w-px h-6 bg-slate-200 dark:bg-slate-700"></div>
+        <div className="w-px h-5 sm:h-6 bg-slate-200 dark:bg-slate-700 mx-1"></div>
 
         <button
           onClick={toggleTheme}
-          className="p-2.5 text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full transition-colors"
+          className="p-2 sm:p-2.5 text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full transition-colors"
         >
-          <Icon name={theme === "dark" ? "Sun" : "Moon"} />
+          <Icon
+            name={theme === "dark" ? "Sun" : "Moon"}
+            className="w-4 h-4 sm:w-5 sm:h-5"
+          />
         </button>
-        <button className="flex items-center space-x-2 p-2.5 text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full transition-colors">
-          <Icon name="User" />
+        <button className="hidden sm:flex items-center space-x-2 p-2.5 text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full transition-colors">
+          <Icon name="User" className="w-5 h-5" />
         </button>
       </div>
     </nav>
@@ -1408,7 +1487,6 @@ const Dashboard = () => {
   const [isUploading, setIsUploading] = useState(false);
 
   useEffect(() => {
-    // Tải mammoth để chuyển đổi Word sang HTML chuẩn
     if (!document.getElementById("mammoth-script")) {
       const script = document.createElement("script");
       script.id = "mammoth-script";
@@ -1426,7 +1504,6 @@ const Dashboard = () => {
     try {
       if (file.name.endsWith(".txt")) {
         const text = await file.text();
-        // Bọc text trong thẻ p để chuẩn HTML format
         const htmlContent = text
           .split("\n")
           .filter((p) => p.trim() !== "")
@@ -1447,7 +1524,6 @@ const Dashboard = () => {
       } else if (file.name.endsWith(".docx")) {
         if (window.mammoth) {
           const arrayBuffer = await file.arrayBuffer();
-          // Dùng convertToHtml để giữ format thay vì extractRawText
           const result = await window.mammoth.convertToHtml({ arrayBuffer });
           const htmlContent = result.value || "<p>Tài liệu trống</p>";
           const time = calculateReadingTime(htmlContent);
@@ -1469,7 +1545,6 @@ const Dashboard = () => {
         alert("Vui lòng chọn file .txt hoặc .docx");
       }
     } catch (error) {
-      console.error("Lỗi:", error);
       alert("Lỗi đọc file: " + error.message);
     } finally {
       setIsUploading(false);
@@ -1478,35 +1553,33 @@ const Dashboard = () => {
   };
 
   return (
-    <div className="max-w-6xl mx-auto p-6 md:p-12 animate-fade-in">
-      {/* Hero Section */}
-      <div className="mb-14 text-center space-y-4">
-        <h1 className="text-4xl md:text-5xl font-black text-slate-900 dark:text-white tracking-tight">
-          Nâng cấp trải nghiệm{" "}
+    <div className="max-w-6xl mx-auto p-4 sm:p-6 md:p-12 animate-fade-in">
+      <div className="mb-10 sm:mb-14 text-center space-y-3 sm:space-y-4">
+        <h1 className="text-3xl sm:text-4xl md:text-5xl font-black text-slate-900 dark:text-white tracking-tight leading-tight">
+          Nâng cấp trải nghiệm <br className="sm:hidden" />
           <span className="text-transparent bg-clip-text bg-gradient-to-r from-indigo-500 to-blue-500">
+            {" "}
             Đọc tiếng Anh
           </span>
         </h1>
-        <p className="text-lg text-slate-600 dark:text-slate-400 max-w-2xl mx-auto">
+        <p className="text-sm sm:text-base md:text-lg text-slate-600 dark:text-slate-400 max-w-2xl mx-auto px-4">
           Đọc tài liệu Word chuẩn định dạng. Bôi đen để dịch, phát âm và lưu từ
-          vựng thông minh cùng Gemini AI.
+          vựng thông minh cùng AI.
         </p>
       </div>
 
-      {/* Upload Zone */}
-      <div className="relative group mb-16">
+      <div className="relative group mb-12 sm:mb-16 mx-2 sm:mx-0">
         <div className="absolute inset-0 bg-gradient-to-r from-indigo-500 to-blue-500 rounded-3xl blur-xl opacity-20 group-hover:opacity-40 transition-opacity duration-500"></div>
-        <div className="relative bg-white/60 dark:bg-slate-800/60 backdrop-blur-xl border-2 border-dashed border-indigo-200 dark:border-indigo-800 rounded-3xl p-12 flex flex-col items-center justify-center text-center hover:bg-white/80 dark:hover:bg-slate-800/80 transition-all">
-          <div className="w-16 h-16 bg-indigo-50 dark:bg-indigo-900/50 rounded-2xl flex items-center justify-center text-indigo-600 dark:text-indigo-400 mb-6 shadow-sm">
-            <Icon name="Upload" className="w-8 h-8" />
+        <div className="relative bg-white/60 dark:bg-slate-800/60 backdrop-blur-xl border-2 border-dashed border-indigo-200 dark:border-indigo-800 rounded-3xl p-8 sm:p-12 flex flex-col items-center justify-center text-center hover:bg-white/80 dark:hover:bg-slate-800/80 transition-all">
+          <div className="w-12 h-12 sm:w-16 sm:h-16 bg-indigo-50 dark:bg-indigo-900/50 rounded-2xl flex items-center justify-center text-indigo-600 dark:text-indigo-400 mb-4 sm:mb-6 shadow-sm">
+            <Icon name="Upload" className="w-6 h-6 sm:w-8 sm:h-8" />
           </div>
-          <h3 className="text-2xl font-bold text-slate-800 dark:text-white mb-2">
+          <h3 className="text-xl sm:text-2xl font-bold text-slate-800 dark:text-white mb-2">
             Kéo thả tài liệu vào đây
           </h3>
-          <p className="text-slate-500 dark:text-slate-400 mb-8">
-            Hỗ trợ định dạng DOCX (có giữ format) và TXT
+          <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 mb-6 sm:mb-8">
+            Hỗ trợ định dạng DOCX và TXT
           </p>
-
           <input
             type="file"
             ref={fileInputRef}
@@ -1514,92 +1587,83 @@ const Dashboard = () => {
             accept=".txt,.docx"
             className="hidden"
           />
-
           <button
             onClick={() => fileInputRef.current?.click()}
             disabled={isUploading}
-            className="px-8 py-3.5 bg-slate-900 dark:bg-white text-white dark:text-slate-900 rounded-full font-semibold transition-transform hover:scale-105 active:scale-95 shadow-xl flex items-center justify-center disabled:opacity-50 disabled:hover:scale-100"
+            className="w-full sm:w-auto px-6 sm:px-8 py-3 bg-slate-900 dark:bg-white text-white dark:text-slate-900 rounded-full font-semibold transition-transform hover:scale-105 active:scale-95 shadow-xl flex items-center justify-center text-sm sm:text-base disabled:opacity-50"
           >
             {isUploading ? (
               <span className="flex items-center">
-                <div className="w-4 h-4 border-2 border-white/50 border-t-white rounded-full animate-spin mr-3"></div>{" "}
+                <div className="w-4 h-4 border-2 border-white/50 border-t-white rounded-full animate-spin mr-2 sm:mr-3"></div>{" "}
                 Đang xử lý...
               </span>
             ) : (
               <span className="flex items-center">
-                <Icon name="FileText" className="w-5 h-5 mr-2" /> Chọn File từ
-                máy tính
+                <Icon name="FileText" className="w-4 h-4 sm:w-5 sm:h-5 mr-2" />{" "}
+                Chọn File từ máy tính
               </span>
             )}
           </button>
         </div>
       </div>
 
-      {/* Recent Documents */}
-      <div>
-        <div className="flex items-center justify-between mb-6">
-          <h2 className="text-2xl font-bold text-slate-800 dark:text-white">
+      <div className="px-2 sm:px-0">
+        <div className="flex items-center justify-between mb-4 sm:mb-6">
+          <h2 className="text-xl sm:text-2xl font-bold text-slate-800 dark:text-white">
             Tài liệu gần đây
           </h2>
-          <button className="text-sm font-medium text-indigo-600 dark:text-indigo-400 hover:underline">
-            Xem tất cả
-          </button>
         </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
           {documents.map((doc) => (
             <div
               key={doc.id}
               onClick={() => openDocument(doc)}
-              className="bg-white dark:bg-slate-800 p-6 rounded-2xl border border-slate-200 dark:border-slate-700 hover:border-indigo-300 dark:hover:border-indigo-700 hover:shadow-xl hover:shadow-indigo-500/5 transition-all cursor-pointer group relative overflow-hidden"
+              className="bg-white dark:bg-slate-800 p-4 sm:p-6 rounded-2xl border border-slate-200 dark:border-slate-700 hover:border-indigo-300 dark:hover:border-indigo-700 hover:shadow-xl hover:shadow-indigo-500/5 transition-all cursor-pointer group relative overflow-hidden"
             >
-              <div className="absolute top-4 right-4 z-10">
+              <div className="absolute top-3 sm:top-4 right-3 sm:right-4 z-10">
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
                     removeDocument(doc.id);
                   }}
-                  className="p-2 bg-red-50 dark:bg-red-900/20 text-red-500 opacity-0 group-hover:opacity-100 transition-opacity rounded-lg hover:bg-red-100 dark:hover:bg-red-900/40"
-                  title="Xóa tài liệu"
+                  className="p-1.5 sm:p-2 bg-red-50 dark:bg-red-900/20 text-red-500 opacity-100 sm:opacity-0 group-hover:opacity-100 transition-opacity rounded-lg hover:bg-red-100 dark:hover:bg-red-900/40"
                 >
                   <Icon name="Trash" className="w-4 h-4" />
                 </button>
               </div>
-              <div className="flex items-start space-x-4">
+              <div className="flex items-start space-x-3 sm:space-x-4 pr-8">
                 <div
-                  className={`p-3 rounded-xl ${doc.type === "TXT" ? "bg-amber-100/50 text-amber-600 dark:bg-amber-900/30" : "bg-blue-100/50 text-blue-600 dark:bg-blue-900/30"} group-hover:scale-110 transition-transform`}
+                  className={`p-2.5 sm:p-3 rounded-xl shrink-0 ${doc.type === "TXT" ? "bg-amber-100/50 text-amber-600 dark:bg-amber-900/30" : "bg-blue-100/50 text-blue-600 dark:bg-blue-900/30"}`}
                 >
                   <Icon
                     name={doc.type === "TXT" ? "FileText" : "BookOpen"}
-                    className="w-6 h-6"
+                    className="w-5 h-5 sm:w-6 sm:h-6"
                   />
                 </div>
                 <div className="flex-1 min-w-0">
-                  <h3 className="font-bold text-lg text-slate-900 dark:text-white truncate mb-1">
+                  <h3 className="font-bold text-base sm:text-lg text-slate-900 dark:text-white truncate mb-1">
                     {doc.title}
                   </h3>
-                  <div className="flex items-center text-xs text-slate-500 space-x-2">
-                    <span className="bg-slate-100 dark:bg-slate-700 px-2 py-0.5 rounded font-medium">
+                  <div className="flex items-center text-[10px] sm:text-xs text-slate-500 space-x-1 sm:space-x-2">
+                    <span className="bg-slate-100 dark:bg-slate-700 px-1.5 py-0.5 rounded font-medium">
                       {doc.type}
                     </span>
                     <span>•</span>
-                    <span>{doc.lastRead}</span>
-                    <span>•</span>
-                    <span
-                      className="flex items-center text-indigo-600 dark:text-indigo-400 font-medium"
-                      title="Thời gian đọc ước tính"
-                    >
+                    <span className="truncate">{doc.lastRead}</span>
+                    <span className="hidden sm:inline">•</span>
+                    <span className="hidden sm:flex items-center text-indigo-600 dark:text-indigo-400 font-medium">
                       <Icon name="Clock" className="w-3 h-3 mr-0.5" /> ~
                       {doc.readingTime}p
                     </span>
                   </div>
                 </div>
               </div>
-              <div className="mt-6">
-                <div className="flex justify-between text-xs font-medium text-slate-500 mb-2">
+              <div className="mt-4 sm:mt-6">
+                <div className="flex justify-between text-[10px] sm:text-xs font-medium text-slate-500 mb-1.5 sm:mb-2">
                   <span>Tiến độ đọc</span>
                   <span>{doc.progress}%</span>
                 </div>
-                <div className="w-full bg-slate-100 dark:bg-slate-700 rounded-full h-2 overflow-hidden">
+                <div className="w-full bg-slate-100 dark:bg-slate-700 rounded-full h-1.5 sm:h-2 overflow-hidden">
                   <div
                     className="bg-indigo-500 h-full rounded-full transition-all duration-1000"
                     style={{ width: `${doc.progress}%` }}
@@ -1614,6 +1678,7 @@ const Dashboard = () => {
   );
 };
 
+/* STREAMING_CHUNK:Main App Component và Global CSS... */
 const AppContent = () => {
   const { currentView } = useContext(AppContext);
 
@@ -1622,36 +1687,44 @@ const AppContent = () => {
       <style
         dangerouslySetInnerHTML={{
           __html: `
-        /* Scrollbar styles */
-        .custom-scrollbar::-webkit-scrollbar { width: 6px; }
+        .custom-scrollbar::-webkit-scrollbar { width: 4px; height: 4px; }
+        @media (min-width: 640px) { .custom-scrollbar::-webkit-scrollbar { width: 6px; height: 6px; } }
         .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
         .custom-scrollbar::-webkit-scrollbar-thumb { background-color: rgba(156, 163, 175, 0.3); border-radius: 10px; }
         .custom-scrollbar:hover::-webkit-scrollbar-thumb { background-color: rgba(156, 163, 175, 0.6); }
         
-        /* Animations */
         @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
-        .animate-fade-in { animation: fadeIn 0.5s ease-out forwards; }
+        .animate-fade-in { animation: fadeIn 0.4s ease-out forwards; }
         
-        /* Word Document Content Styling (Typography) */
-        .document-html-content {
-           line-height: 1.8;
-           color: inherit;
-        }
-        .document-html-content p { margin-bottom: 1.5em; text-align: justify; }
-        .document-html-content h1 { font-family: ui-sans-serif, system-ui; font-size: 2.25em; font-weight: 800; margin-bottom: 1em; line-height: 1.2; }
-        .document-html-content h2 { font-family: ui-sans-serif, system-ui; font-size: 1.5em; font-weight: 700; margin-top: 1.5em; margin-bottom: 0.75em; }
-        .document-html-content h3 { font-family: ui-sans-serif, system-ui; font-size: 1.25em; font-weight: 600; margin-top: 1.5em; margin-bottom: 0.5em; }
-        .document-html-content ul { list-style-type: disc; padding-left: 2em; margin-bottom: 1.5em; }
-        .document-html-content ol { list-style-type: decimal; padding-left: 2em; margin-bottom: 1.5em; }
-        .document-html-content li { margin-bottom: 0.5em; }
+        /* Word Document Content Styling */
+        .document-html-content { line-height: 1.6; color: inherit; word-wrap: break-word; overflow-wrap: break-word;}
+        @media (min-width: 640px) { .document-html-content { line-height: 1.8; } }
+        
+        .document-html-content p { margin-bottom: 1.2em; text-align: left; }
+        @media (min-width: 768px) { .document-html-content p { text-align: justify; margin-bottom: 1.5em; } }
+        
+        .document-html-content h1 { font-family: ui-sans-serif, system-ui; font-size: 1.75em; font-weight: 800; margin-bottom: 0.8em; line-height: 1.2; }
+        @media (min-width: 640px) { .document-html-content h1 { font-size: 2.25em; margin-bottom: 1em; } }
+        
+        .document-html-content h2 { font-family: ui-sans-serif, system-ui; font-size: 1.3em; font-weight: 700; margin-top: 1.2em; margin-bottom: 0.6em; }
+        @media (min-width: 640px) { .document-html-content h2 { font-size: 1.5em; margin-top: 1.5em; margin-bottom: 0.75em; } }
+        
+        .document-html-content h3 { font-family: ui-sans-serif, system-ui; font-size: 1.15em; font-weight: 600; margin-top: 1.2em; margin-bottom: 0.5em; }
+        .document-html-content ul { list-style-type: disc; padding-left: 1.5em; margin-bottom: 1.2em; }
+        .document-html-content ol { list-style-type: decimal; padding-left: 1.5em; margin-bottom: 1.2em; }
+        .document-html-content li { margin-bottom: 0.4em; }
         .document-html-content strong, .document-html-content b { font-weight: 700; }
         .document-html-content em, .document-html-content i { font-style: italic; }
-        .document-html-content blockquote { border-left: 4px solid #cbd5e1; padding-left: 1em; margin-left: 0; font-style: italic; color: #64748b; }
+        
+        .document-html-content blockquote { border-left: 3px solid #cbd5e1; padding-left: 1em; margin-left: 0; font-style: italic; color: #64748b; }
+        @media (min-width: 640px) { .document-html-content blockquote { border-left-width: 4px; } }
         .dark .document-html-content blockquote { border-color: #475569; color: #94a3b8; }
         
-        /* Table Styles */
-        .document-html-content table { width: 100%; border-collapse: collapse; margin-bottom: 2em; font-size: 0.95em; }
-        .document-html-content th, .document-html-content td { border: 1px solid rgba(156, 163, 175, 0.4); padding: 12px 16px; text-align: left; vertical-align: top; }
+        /* Table Styles Responsive */
+        .document-html-content table { width: 100%; border-collapse: collapse; margin-bottom: 1.5em; font-size: 0.85em; display: block; overflow-x: auto; white-space: nowrap; }
+        @media (min-width: 640px) { .document-html-content table { font-size: 0.95em; display: table; white-space: normal; } }
+        .document-html-content th, .document-html-content td { border: 1px solid rgba(156, 163, 175, 0.4); padding: 8px 10px; text-align: left; vertical-align: top; }
+        @media (min-width: 640px) { .document-html-content th, .document-html-content td { padding: 12px 16px; } }
         .document-html-content th { background-color: rgba(0, 0, 0, 0.04); font-weight: 700; }
         .document-html-content tr:nth-child(even) { background-color: rgba(0, 0, 0, 0.015); }
         .dark .document-html-content th { background-color: rgba(255, 255, 255, 0.05); }
@@ -1659,9 +1732,9 @@ const AppContent = () => {
       `,
         }}
       />
+
       <Navbar />
       <main>
-        {}
         {currentView === "dashboard" && <Dashboard />}
         {currentView === "reader" && <Reader />}
         {currentView === "notebook" && <NotebookView />}
