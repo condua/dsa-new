@@ -382,54 +382,82 @@ const MOCK_DOCUMENTS = [
 ];
 const RealDictionaryService = {
   lookup: async (text, context) => {
+    const cleanText = text.trim();
+
+    if (!cleanText) {
+      return null;
+    }
+
+    const wordCount = cleanText.split(/\s+/).length;
+    const isTranslationMode = wordCount > 3;
+
     try {
-      // Lấy API key từ biến môi trường của Vite
       const apiKey = import.meta.env.VITE_OPENAI_API_KEY;
+
       const apiUrl = "https://api.openai.com/v1/chat/completions";
 
-      const wordCount = text.trim().split(/\s+/).length;
-      // Khai báo biến này nếu bạn cần dùng cho logic khác bên ngoài
-      const isTranslationMode = wordCount > 3;
+      const systemPrompt = `
+You are an expert English-Vietnamese AI tutor and dictionary.
 
-      const systemPrompt = `You are an expert English-Vietnamese AI tutor and dictionary.
-      Analyze the provided text.
-      
-      IF the text is 1 to 3 words long, act as a Dictionary and return ONLY this JSON structure:
-      {
-        "mode": "dictionary",
-        "word": "the exact word queried",
-        "ipa": "IPA pronunciation",
-        "partOfSpeech": "noun/verb/adj/etc",
-        "vietnameseMeaning": "primary Vietnamese translation",
-        "contextMeaning": "Vietnamese meaning adapted to context (if different)",
-        "englishDefinition": "Short English definition",
-        "examples": ["example 1"]
-      }
+Analyze the provided English text.
 
-      IF the text is 4 words or longer (a phrase, sentence, or paragraph), act as a Translator and return ONLY this JSON structure:
-      {
-        "mode": "translation",
-        "word": "the original text",
-        "vietnameseMeaning": "Fluent and natural Vietnamese translation of the entire text",
-        "englishDefinition": "Brief grammatical explanation or summary of the text's meaning",
-        "keyVocabulary": [
-           {"word": "hard word 1", "meaning": "meaning in vietnamese"},
-           {"word": "hard word 2", "meaning": "meaning in vietnamese"}
-        ]
-      }
-      
-      Important: Output MUST be a valid JSON object.`;
+If the text contains 1 to 3 words, return a dictionary result.
 
-      const userPrompt = `Text to analyze: "${text}"\nContext: "${context || "None"}"`;
+If the text contains 4 or more words, return a translation result.
+
+IMPORTANT:
+- Always return valid JSON.
+- Do not use Markdown.
+- Do not add explanations outside JSON.
+
+For dictionary mode, return:
+
+{
+  "word": "the exact text queried",
+  "ipa": "IPA pronunciation",
+  "partOfSpeech": "noun/verb/adjective/etc",
+  "vietnameseMeaning": "primary Vietnamese meaning",
+  "contextMeaning": "meaning in the given context",
+  "englishDefinition": "short English definition",
+  "examples": ["example sentence"]
+}
+
+For translation mode, return:
+
+{
+  "word": "the original text",
+  "vietnameseMeaning": "natural Vietnamese translation",
+  "englishDefinition": "brief explanation",
+  "keyVocabulary": [
+    {
+      "word": "word",
+      "meaning": "Vietnamese meaning"
+    }
+  ]
+}
+`;
+
+      const userPrompt = `
+Text: ${JSON.stringify(cleanText)}
+
+Context: ${JSON.stringify(context || "None")}
+`;
 
       const payload = {
-        model: "gpt-4o-mini", // Có thể đổi thành gpt-4o tùy nhu cầu
+        model: "gpt-4o-mini",
         messages: [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: userPrompt },
+          {
+            role: "system",
+            content: systemPrompt,
+          },
+          {
+            role: "user",
+            content: userPrompt,
+          },
         ],
-        // Bắt buộc OpenAI trả về định dạng JSON
-        response_format: { type: "json_object" },
+        response_format: {
+          type: "json_object",
+        },
       };
 
       const response = await fetch(apiUrl, {
@@ -443,21 +471,40 @@ const RealDictionaryService = {
 
       const result = await response.json();
 
-      // Parse kết quả trả về từ OpenAI
-      if (result?.choices?.[0]?.message?.content) {
-        const jsonString = result.choices[0].message.content.trim();
-        return JSON.parse(jsonString);
-      } else {
-        console.error("OpenAI API Error details:", result);
-        throw new Error("Invalid response from OpenAI");
+      if (!response.ok) {
+        console.error("OpenAI API Error:", result);
+        throw new Error(result?.error?.message || "OpenAI API request failed");
       }
+
+      const content = result?.choices?.[0]?.message?.content;
+
+      if (!content) {
+        throw new Error("OpenAI returned empty content");
+      }
+
+      const aiData = JSON.parse(content);
+
+      // QUAN TRỌNG:
+      // Không cho AI quyết định mode.
+      // Frontend tự xác định dựa trên số lượng từ.
+      return {
+        ...aiData,
+        mode: isTranslationMode ? "translation" : "dictionary",
+        word: cleanText,
+      };
     } catch (error) {
       console.error("AI Error:", error);
+
+      // Nếu đang tra MỘT TỪ thì lỗi vẫn phải là dictionary.
       return {
-        mode: "translation",
-        word: text,
-        vietnameseMeaning: "Lỗi kết nối AI. Vui lòng thử lại sau.",
+        mode: isTranslationMode ? "translation" : "dictionary",
+        word: cleanText,
+        vietnameseMeaning: "Không thể kết nối với AI. Vui lòng thử lại.",
         englishDefinition: error.message,
+        ipa: "",
+        partOfSpeech: "",
+        contextMeaning: "",
+        examples: [],
       };
     }
   },
